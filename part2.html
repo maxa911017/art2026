@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>灰燼中的迴音 | 最終沈浸版</title>
+    <title>灰燼中的迴音 | 最終沈浸版 (配樂)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -115,6 +115,9 @@
     </style>
 </head>
 <body>
+    <!-- 背景音樂播放器：改為播放 bgm2.mp3 -->
+    <audio id="bgm" src="bgm2.mp3" loop preload="auto"></audio>
+
     <div id="canvas-container"></div>
     <div id="shatter-layer"></div>
     <canvas id="fog-canvas"></canvas>
@@ -143,7 +146,6 @@
             <button id="start-btn">進入記憶</button>
         </div>
 
-        <!-- 隧道 -->
         <div id="step-1-1" class="text-block">
             <h2 class="text-xl md:text-3xl font-light tracking-[0.2em] leading-loose text-fade">走在冰冷的長廊，<br>盡頭沒有光。</h2>
         </div>
@@ -154,12 +156,10 @@
             <h2 class="text-2xl md:text-4xl font-bold tracking-[0.2em] leading-loose text-white" style="text-shadow: 0 0 20px rgba(255,255,255,0.5);">「抱歉，只能陪你到這裡了。」</h2>
         </div>
         
-        <!-- 隔閡 -->
         <div id="step-1-5" class="text-block">
             <h2 class="text-xl md:text-3xl font-light tracking-[0.2em] leading-loose text-fade">生與死之間，<br>有一道敲不碎的牆。</h2>
         </div>
         
-        <!-- 迷霧與深淵 -->
         <div id="step-2" class="text-block">
             <h2 class="text-xl md:text-3xl font-light tracking-[0.2em] leading-loose text-fade">世界被迷霧掩蓋...<br>我看不到你了。</h2>
         </div>
@@ -167,7 +167,6 @@
             <h2 class="text-lg md:text-2xl font-light tracking-[0.3em] leading-loose text-gray-500">如果就這樣放開手，<br>會墜落到哪裡？</h2>
         </div>
         
-        <!-- 失去瞬間 -->
         <div id="step-loss-1" class="text-block">
             <h2 class="text-xl md:text-3xl font-light tracking-[0.3em] leading-loose text-white">我拼命抓緊，</h2>
         </div>
@@ -175,7 +174,6 @@
             <h2 class="text-xl md:text-3xl font-light tracking-[0.3em] leading-loose text-gray-500">卻還是斷裂了。</h2>
         </div>
 
-        <!-- 灰燼階段 -->
         <div id="step-3-1" class="text-block pointer-events-none">
             <h2 class="text-xl md:text-3xl font-light tracking-[0.2em] leading-loose text-fade">所有的炙熱，最終都會冷卻。</h2>
         </div>
@@ -183,7 +181,6 @@
             <h2 class="text-lg md:text-2xl font-light tracking-[0.2em] leading-loose text-gray-500">試圖將它們捧在手心，<br>卻只換來更深的虛無。</h2>
         </div>
 
-        <!-- 終曲掙扎 -->
         <div id="step-4-1" class="text-block pointer-events-none">
             <h2 class="text-lg md:text-2xl font-light tracking-[0.2em] leading-loose text-gray-300">我們總以為，<br>緊緊抓住就能永遠。</h2>
         </div>
@@ -194,7 +191,6 @@
             <h2 class="text-2xl md:text-4xl font-bold tracking-[0.4em] leading-loose text-danger">放手吧。</h2>
         </div>
         
-        <!-- 真結局 -->
         <div id="step-end" class="text-block pointer-events-none">
             <h2 class="text-xl md:text-3xl font-light leading-loose text-peace mb-8" style="text-shadow: 0 0 30px rgba(255,200,100,0.4);">即使放開手，<br>微光依然會留下。</h2>
             <p class="text-sm text-gray-400 tracking-[0.5em] opacity-60">謝謝你的陪伴</p>
@@ -222,37 +218,37 @@
             if (isAudioReady) return Promise.resolve();
             return new Promise((resolve) => {
                 try {
-                    // 環境底噪與心跳
+                    // 環境底噪與心跳 (配合《身後》較沈重的鋼琴，底噪再稍微收斂)
                     filter = new Tone.Filter(150, "lowpass").toDestination();
                     bgNoise = new Tone.Noise("brown").connect(filter);
-                    bgNoise.volume.value = -15;
+                    bgNoise.volume.value = -28; 
 
                     heartbeatSynth = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 2, envelope: { attack: 0.01, decay: 0.4, sustain: 0.01, release: 1.2 } }).toDestination();
-                    heartbeatSynth.volume.value = 8;
+                    heartbeatSynth.volume.value = 5; // 心跳稍微調弱，不搶鋼琴風采
 
                     // 特效音
                     earRingSynth = new Tone.Oscillator(7500, "sine").toDestination(); earRingSynth.volume.value = -Infinity;
-                    crackSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 } }).toDestination(); crackSynth.volume.value = -5;
+                    crackSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 } }).toDestination(); crackSynth.volume.value = -6;
                     lossSnapSynth = new Tone.MembraneSynth({ pitchDecay: 0.3, octaves: 4, envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.1 } }).toDestination();
                     
                     const scratchFilter = new Tone.Filter(1200, "highpass").toDestination();
                     scratchNoise = new Tone.Noise("pink").connect(scratchFilter); scratchNoise.volume.value = -Infinity; scratchNoise.start();
 
-                    // 環境和弦 (Pad)
+                    // 環境和弦 (Pad) (配合鋼琴配樂，音量調弱以做為襯底)
                     const massiveReverb = new Tone.Reverb(15).toDestination(); 
                     ambientPad = new Tone.PolySynth(Tone.Synth, { oscillator: { type: "sine" }, envelope: { attack: 5, decay: 4, sustain: 0.5, release: 10 } }).connect(massiveReverb);
-                    ambientPad.volume.value = -18;
+                    ambientPad.volume.value = -28;
 
                     // 終曲壓迫感
                     bitCrusher = new Tone.BitCrusher(8).toDestination();
                     bitCrusher.wet.value = 0; 
                     finalHeartbeat = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, envelope: { attack: 0.05, decay: 0.8, sustain: 0, release: 2 } }).connect(bitCrusher).connect(massiveReverb);
-                    finalHeartbeat.volume.value = 6;
+                    finalHeartbeat.volume.value = 5;
 
                     // 結局釋放和弦
                     heavenlyChorus = new Tone.Chorus(4, 2.5, 0.5).connect(massiveReverb).start();
                     finalReleaseChord = new Tone.PolySynth(Tone.Synth, { oscillator: { type: "triangle" }, envelope: { attack: 3, decay: 2, sustain: 1, release: 15 } }).connect(heavenlyChorus);
-                    finalReleaseChord.volume.value = -12;
+                    finalReleaseChord.volume.value = -18; // 讓鋼琴成為主角
 
                     isAudioReady = true; resolve();
                 } catch (error) { console.error("Audio init failed:", error); resolve(); }
@@ -274,10 +270,9 @@
         let sparkY = 90; let targetSparkY = 90; let isDraggingSpark = false;
         const sparkEl = document.getElementById('single-spark');
 
-        // 平滑過渡函數
         const lerp = (start, end, amt) => (1 - amt) * start + amt * end;
-        let finalCameraTilt = 0; // 用於結局的相機仰角
-        let colorLerpProgress = 0; // 用於結局的顏色漸變
+        let finalCameraTilt = 0; 
+        let colorLerpProgress = 0; 
 
         function createParticleTexture() {
             const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
@@ -329,7 +324,6 @@
             
             mouse.lerp(targetMouse, 0.1);
             
-            // 基礎視角跟隨
             if (currentPhase !== 5) {
                 camera.position.x += ((mouse.x * 12) - camera.position.x) * 0.05; 
                 camera.position.y += ((mouse.y * 12) - camera.position.y) * 0.05;
@@ -339,7 +333,6 @@
                 let speed = isHoldingDown ? 1.0 + (4.0 * (holdProgress/100)) : 1.2;
                 camera.position.z -= speed;
                 if (isHoldingDown && holdProgress > 20) { 
-                    // 壓迫感的震動
                     let shake = (holdProgress/100)*1.8; 
                     camera.position.x += (Math.random()-0.5)*shake; 
                     camera.position.y += (Math.random()-0.5)*shake; 
@@ -347,7 +340,6 @@
                 for (let i = 0; i < particleCount; i++) { if (positions[i*3+2] > camera.position.z + 50) positions[i*3+2] -= 1000; }
             } 
             else if (currentPhase === 3) {
-                // 灰燼階段：極致無力感的空洞互動
                 camera.position.z += (0 - camera.position.z) * 0.02; scene.rotation.y += 0.0003; 
                 let vec = new THREE.Vector3(mouse.x, mouse.y, 0.5); vec.unproject(camera); vec.sub(camera.position).normalize();
                 let distance = -camera.position.z / vec.z; let worldTarget = new THREE.Vector3().copy(camera.position).add(vec.multiplyScalar(distance));
@@ -359,24 +351,19 @@
                     let dist = Math.sqrt(dx*dx + dy*dy);
                     let isDead = colors[i*3] < 0.2;
                     
-                    // 當長按時，在指尖產生強大的排斥空洞 (Void)
                     if (isHoldingDown && Math.abs(pz - worldTarget.z) < 250 && dist < 120) {
-                        // 強烈推開
                         let force = (120 - dist) * 0.02;
                         positions[i*3] += (dx/dist) * force;
                         positions[i*3+1] += (dy/dist) * force;
                         
-                        // 瞬間冷卻成絕望的黑灰色
                         colors[i*3] = lerp(colors[i*3], 0.05, 0.1); 
                         colors[i*3+1] = lerp(colors[i*3+1], 0.05, 0.1); 
                         colors[i*3+2] = lerp(colors[i*3+2], 0.05, 0.1); 
                     } else {
-                        // 自然墜落 (越黑掉得越快)
                         let fallSpeed = isDead ? 0.8 : (0.15 + Math.random()*0.05);
                         positions[i*3+1] -= fallSpeed;
                         positions[i*3] += Math.sin(time + i) * 0.01;
                         
-                        // 緩慢恢復成原本的灰色
                         if (!isDead) {
                             colors[i*3] = lerp(colors[i*3], 0.45, 0.005);
                             colors[i*3+1] = lerp(colors[i*3+1], 0.45, 0.005);
@@ -384,7 +371,6 @@
                         }
                     }
 
-                    // 循環粒子
                     if (positions[i*3+1] < -200) {
                         positions[i*3+1] = 200 + Math.random()*100; positions[i*3] = (Math.random()-0.5)*400; positions[i*3+2] = (Math.random()-0.5)*400;
                         colors[i*3] = 0.45; colors[i*3+1] = 0.45; colors[i*3+2] = 0.45; 
@@ -393,33 +379,26 @@
                 geometry.attributes.color.needsUpdate = true;
             }
             else if (currentPhase === 4 && isGlitching) {
-                // 終曲：掙扎時的相機微震
                 camera.position.x += (Math.random()-0.5)*0.8;
                 camera.position.y += (Math.random()-0.5)*0.8;
             }
             else if (currentPhase === 5) {
-                // 真結局：電影級平靜上升與仰角
                 camera.position.z += (0 - camera.position.z) * 0.01; 
                 scene.rotation.y += 0.0002; 
                 
-                // 相機緩慢抬頭仰望
                 finalCameraTilt = lerp(finalCameraTilt, Math.PI / 8, 0.003);
                 camera.rotation.x = finalCameraTilt;
                 
-                // 顏色漸變到溫暖的橘黃色
                 colorLerpProgress = Math.min(1.0, colorLerpProgress + 0.001);
                 
                 for (let i = 0; i < particleCount; i++) {
-                    // 反向漂浮（向上）
                     positions[i*3+1] += (0.15 + Math.random()*0.08);
                     positions[i*3] += Math.sin(time * 0.4 + i) * 0.02; 
 
-                    // 漸變顏色
-                    colors[i*3] = lerp(colors[i*3], 1.0, 0.01);                           // R: 滿
-                    colors[i*3+1] = lerp(colors[i*3+1], 0.55 + (i%100)/500, 0.01);        // G: 橘黃
-                    colors[i*3+2] = lerp(colors[i*3+2], 0.15 + (i%100)/800, 0.01);        // B: 暖光
+                    colors[i*3] = lerp(colors[i*3], 1.0, 0.01);                           
+                    colors[i*3+1] = lerp(colors[i*3+1], 0.55 + (i%100)/500, 0.01);        
+                    colors[i*3+2] = lerp(colors[i*3+2], 0.15 + (i%100)/800, 0.01);        
 
-                    // 飛出天際後從底部重新出現
                     if (positions[i*3+1] > 300) {
                         positions[i*3+1] = -300 + Math.random()*50; 
                         positions[i*3] = (Math.random()-0.5)*400; 
@@ -432,7 +411,7 @@
             geometry.attributes.position.needsUpdate = true; renderer.render(scene, camera);
         }
 
-        // --- UI 時間軸與狀態管理系統 (防重疊) ---
+        // --- UI 時間軸與狀態管理系統 ---
         const fogCanvas = document.getElementById('fog-canvas'); const fogCtx = fogCanvas.getContext('2d', { willReadFrequently: true });
         function initCanvases() { fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight; }
 
@@ -473,7 +452,7 @@
             let fadeOutTime = 0;
             if(hideId) { 
                 const el = document.getElementById(hideId); 
-                if(el) { el.classList.remove('active'); fadeOutTime = 2500; } // 預留充裕的淡出時間
+                if(el) { el.classList.remove('active'); fadeOutTime = 2500; } 
             }
             if(showId) { 
                 const tid = setTimeout(() => { 
@@ -509,7 +488,7 @@
             }
             else if (currentPhase === 3) {
                 isHoldingDown = true;
-                if(isAudioReady && scratchNoise) scratchNoise.volume.rampTo(-10, 0.5); // 掙扎的風聲
+                if(isAudioReady && scratchNoise) scratchNoise.volume.rampTo(-10, 0.5);
             }
             else if (currentPhase === 4 && !canRelease) {
                 isHoldingDown = true;
@@ -534,7 +513,7 @@
                             switchUI('step-4-2', 'step-4-3', 0); 
                             
                             if(isAudioReady) { 
-                                bitCrusher.wet.rampTo(0.8, 2); // 加入些微破音
+                                bitCrusher.wet.rampTo(0.8, 2); 
                                 bitCrusher.bits.rampTo(3, 2); 
                             }
                         }
@@ -574,7 +553,6 @@
                 if (canRelease) {
                     triggerTrueEnding();
                 } else {
-                    // 放開得太早，重置
                     finaleHoldTimer = 0; p4Step = 0;
                     document.getElementById('finale-light').style.opacity = '0';
                     document.getElementById('finale-light').style.transform = 'scale(1)';
@@ -635,7 +613,6 @@
                 holdProgress = Math.max(0, Math.min(100, holdProgress));
                 const ring = document.getElementById('interaction-ring');
                 
-                // 動態光圈與暈影
                 if(isHoldingDown) { 
                     ring.style.width = `${80 + holdProgress*2}px`; ring.style.height = `${80 + holdProgress*2}px`; 
                     ring.style.boxShadow = `0 0 ${holdProgress*1.5}px rgba(255,255,255,0.25)`; 
@@ -712,7 +689,7 @@
         function startAshesPhase() {
             currentPhase = 3;
             document.getElementById('blackout-layer').style.transition = 'opacity 5s ease'; document.getElementById('blackout-layer').style.opacity = '0';
-            document.getElementById('abyss-layer').style.opacity = '0'; document.getElementById('canvas-container').style.opacity = '0.6'; // 畫面極度黯淡
+            document.getElementById('abyss-layer').style.opacity = '0'; document.getElementById('canvas-container').style.opacity = '0.6'; 
 
             if (ambientPad) ambientPad.triggerAttack(["C2", "G2"], undefined, 0.15); 
 
@@ -743,22 +720,21 @@
             );
         }
 
-        // 真結局：電影級平靜仰望
         function triggerTrueEnding() {
             currentPhase = 5; 
             document.body.classList.remove('glitch-effect');
             
             if(isAudioReady) {
                 bitCrusher.wet.value = 0; 
-                finalReleaseChord.triggerAttackRelease(["C3", "E3", "G3", "C4"], "1n"); // 溫柔釋放的 C大調和弦
+                finalReleaseChord.triggerAttackRelease(["C3", "E3", "G3", "C4"], "1n"); 
                 if(ambientPad) ambientPad.triggerAttack(["C3", "G3"], undefined, 0.1); 
             }
 
             const blackout = document.getElementById('blackout-layer');
-            blackout.style.transition = 'opacity 6s ease-in-out'; // 極其緩慢的淡入
+            blackout.style.transition = 'opacity 6s ease-in-out'; 
             blackout.style.opacity = '0';
             
-            if (scene) scene.fog.color.setHex(0x1a0d00); // 暖色霧氣
+            if (scene) scene.fog.color.setHex(0x1a0d00); 
             document.getElementById('canvas-container').style.transition = 'opacity 4s ease';
             document.getElementById('canvas-container').style.opacity = '1'; 
 
@@ -769,11 +745,13 @@
             
             uiTimeouts.push(setTimeout(() => {
                 switchUI(null, 'step-end', 0);
-            }, 6000)); // 留白 6 秒後才浮現最後一段話
+            }, 6000)); 
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             const startBtn = document.getElementById('start-btn');
+            const bgm = document.getElementById('bgm');
+
             setTimeout(() => { try { initThreeJS(); } catch(e) {} }, 100);
             
             let isStarting = false;
@@ -786,6 +764,25 @@
                 startBtn.style.opacity = '0.5';
                 startBtn.style.pointerEvents = 'none';
                 
+                // 播放背景音樂並執行淡入效果
+                try {
+                    bgm.volume = 0;
+                    bgm.play().catch(err => console.log("BGM 自動播放被瀏覽器阻擋: ", err));
+                    
+                    let fadeVol = 0;
+                    let fadeInterval = setInterval(() => {
+                        fadeVol += 0.05;
+                        if (fadeVol >= 0.7) { // 設定配樂最高音量 (0~1)
+                            bgm.volume = 0.7;
+                            clearInterval(fadeInterval);
+                        } else {
+                            bgm.volume = fadeVol;
+                        }
+                    }, 200);
+                } catch (e) {
+                    console.log("Audio play error", e);
+                }
+
                 startExperience();
 
                 if (typeof Tone !== 'undefined') {
