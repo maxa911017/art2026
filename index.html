@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>在煙霧中長大的孩子</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Noto+Serif+TC:wght@200;300;400;700;900&display=swap');
+
+        :root {
+            --cursor-x: 50vw;
+            --cursor-y: 50dvh;
+            --light-size: 0px; 
+            --flicker: 0px;
+            --light-color: transparent;
+            --scan-progress: 0%;
+        }
+
+        /* 鎖定原生 APP 行為，防止 iPhone 滑動干擾 */
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100dvh;
+            background-color: #000; overflow: hidden;
+            font-family: 'Noto Serif TC', serif;
+            cursor: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+            touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 雜訊背景 */
+        .grain {
+            position: fixed; inset: 0;
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtP38+AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAJklEQVQ4y2NgGAWjYBSMglEwCkbBKBgFo2AUjIJRMApGwSgYBaNgFAwAAwB7AQABK5Sj1AAAAABJRU5ErkJggg==');
+            opacity: 0.15; pointer-events: none; z-index: 999;
+            animation: grainShift 0.3s steps(2) infinite;
+        }
+        @keyframes grainShift { 0% { background-position: 0 0; } 100% { background-position: 10px 10px; } }
+
+        .hidden-sys { display: none !important; }
+
+        /* 手機震動替代方案：畫面色散與抽搐 */
+        .screen-shake { animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 
+            10%, 90% { transform: translate3d(-4px, 2px, 0); filter: drop-shadow(6px 0 0 rgba(255,0,0,0.6)) drop-shadow(-6px 0 0 rgba(0,255,255,0.6)); } 
+            20%, 80% { transform: translate3d(6px, -4px, 0); filter: none; } 
+            30%, 50%, 70% { transform: translate3d(-8px, 6px, 0); filter: drop-shadow(-6px 0 0 rgba(255,0,0,0.6)) drop-shadow(6px 0 0 rgba(0,255,255,0.6)); } 
+            40%, 60% { transform: translate3d(8px, -6px, 0); filter: none; } 
+        }
+
+        /* --- 第一階段：掃描檢查哨 --- */
+        #checkpoint-layer { position: fixed; inset: 0; z-index: 100; background: #000; transition: opacity 2s ease; }
+        #c { position: absolute; top: 0; left: 0; width: 100vw; height: 100dvh; object-fit: cover; filter: grayscale(100%) contrast(150%) brightness(0.7); }
+        #captured-img { position: absolute; top: 0; left: 0; width: 100vw; height: 100dvh; object-fit: cover; filter: grayscale(100%) contrast(350%) brightness(0.5) sepia(20%); opacity: 0; pointer-events: none; transition: opacity 0.1s; z-index: 105; }
+        
+        .burn-away { animation: burn 4s ease-in forwards; }
+        @keyframes burn {
+            0% { filter: grayscale(100%) contrast(350%) brightness(0.5) blur(0px); opacity: 1; transform: scale(1); }
+            50% { filter: grayscale(100%) contrast(500%) brightness(0.2) blur(3px); opacity: 0.8; transform: scale(1.02); }
+            100% { filter: grayscale(100%) contrast(1000%) brightness(0) blur(12px); opacity: 0; transform: scale(1.05); }
+        }
+
+        .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 110; background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0.6)); background-size: 100% 6px; }
+        #flash { position: absolute; inset: 0; background: #FFF; z-index: 150; opacity: 0; pointer-events: none; }
+        .flash-trigger { animation: flashAnim 2.5s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; }
+        @keyframes flashAnim { 0% { opacity: 1; } 10% { opacity: 0.8; } 15% { opacity: 1; } 100% { opacity: 0; } }
+
+        #hud { position: absolute; inset: 0; z-index: 120; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 8vw 6vw; box-sizing: border-box; color: rgba(255, 255, 255, 0.6); font-family: 'Courier Prime', monospace; text-shadow: 0 0 5px rgba(255,255,255,0.3); }
+        .crosshair { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); width: 70vw; height: 45dvh; border: 1.5px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; }
+        .crosshair::before { content: '+'; font-size: 1.5rem; color: rgba(255,255,255,0.4); }
+
+        #serial-number { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: 'Courier Prime', monospace; font-size: clamp(1.8rem, 8vw, 3rem); color: #FFF; font-weight: 900; letter-spacing: 0.1em; text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 0 0 15px #FFF; z-index: 130; opacity: 0; background: #000; padding: 10px 15px; border: 3px solid #FFF; width: 85vw; text-align: center; white-space: nowrap; overflow: hidden; box-sizing: border-box; }
+
+        #trigger-zone-btn { position: absolute; bottom: 8dvh; left: 50%; transform: translateX(-50%); z-index: 140; padding: 15px 20px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.6); font-family: 'Noto Serif TC', serif; letter-spacing: 0.3em; font-size: 0.8rem; width: 80vw; text-align: center; backdrop-filter: blur(5px); transition: all 0.2s; user-select: none; }
+        #trigger-zone-btn.scanning { border-color: red; color: red; background: rgba(255,0,0,0.1); text-shadow: 0 0 8px red; box-shadow: 0 0 15px rgba(255,0,0,0.4) inset; }
+
+        .biometric-scanner { position: absolute; top: 0; left: 0; width: 100vw; height: 4px; background: rgba(255, 0, 0, 0.8); box-shadow: 0 0 15px 5px rgba(255, 0, 0, 0.5); z-index: 115; opacity: 0; pointer-events: none; transform: translateY(calc(var(--scan-progress) * 1dvh)); }
+
+        /* --- 系統覆寫跳過按鈕 (沈浸式設計) --- */
+        #skip-btn {
+            position: absolute; bottom: 5dvh; right: 5vw; z-index: 180;
+            color: rgba(255, 255, 255, 0.25); font-family: 'Courier Prime', monospace;
+            font-size: 0.75rem; letter-spacing: 0.2em;
+            border: 1px solid rgba(255,255,255,0.1); padding: 8px 15px;
+            background: rgba(0,0,0,0.4); backdrop-filter: blur(2px);
+            opacity: 0; pointer-events: none; 
+            /* 極度緩慢的 3 秒淡入，營造詭異浮現感 */
+            transition: opacity 3s ease; 
+            text-shadow: 0 0 5px rgba(255,255,255,0.2);
+            user-select: none; -webkit-user-select: none;
+        }
+        #skip-btn.show { opacity: 1; pointer-events: auto; }
+        /* 點擊時產生紅色錯誤回饋感 */
+        #skip-btn:active { color: #9E3B3B; border-color: #9E3B3B; background: rgba(158,59,59,0.15); transition: none; text-shadow: 0 0 10px red; box-shadow: inset 0 0 10px rgba(158,59,59,0.5); }
+
+
+        /* --- 第二與第三階段共用：暗室與微塵 --- */
+        #darkroom-layer { position: fixed; inset: 0; z-index: 50; background: #020202; }
+        .vignette { position: absolute; inset: 0; pointer-events: none; z-index: 60; background: radial-gradient(circle at center, transparent 20%, rgba(0,0,0,0.99) 100%); }
+        #flashlight-mask { 
+            position: absolute; inset: 0; background: rgba(0, 0, 0, 0.99); z-index: 55; pointer-events: none; 
+            mask-image: radial-gradient(circle calc(var(--light-size) + var(--flicker)) at var(--cursor-x) var(--cursor-y), var(--light-color) 0%, rgba(0,0,0,0.4) 40%, black 100%); 
+            -webkit-mask-image: radial-gradient(circle calc(var(--light-size) + var(--flicker)) at var(--cursor-x) var(--cursor-y), var(--light-color) 0%, rgba(0,0,0,0.4) 40%, black 100%); 
+            transition: mask-image 0.1s, -webkit-mask-image 0.1s; 
+        }
+
+        .dust { position: absolute; background-color: rgba(200, 190, 180, 0.4); border-radius: 50%; pointer-events: none; animation: floatUp linear infinite; z-index: 51; }
+        .dust.fg { filter: blur(3px); background-color: rgba(200, 190, 180, 0.2); z-index: 58; }
+        @keyframes floatUp { 0% { transform: translateY(15dvh) scale(0.5); opacity: 0; } 20% { opacity: 0.8; } 80% { opacity: 0.8; } 100% { transform: translateY(-15dvh) scale(1.5); opacity: 0; } }
+
+        /* --- Part 2: 微弱燈光文字 --- */
+        #whisper-container { position: absolute; inset: 0; z-index: 52; }
+        .memory-fragment {
+            position: absolute; color: #e3d8c3; font-size: 1.1rem; letter-spacing: 0.15em;
+            text-shadow: 0 0 10px rgba(227, 216, 195, 0.8), 0 0 20px rgba(227, 216, 195, 0.4);
+            opacity: 0; pointer-events: none; width: 100vw; left: 0; text-align: center; 
+            padding: 0 10vw; box-sizing: border-box; line-height: 1.6; font-weight: bold; word-break: keep-all; white-space: normal;
+            transform: translateY(-50%); /* 文字垂直置中定位點 */
+            transition: opacity 0.5s ease;
+        }
+        .memory-fragment.revealed { opacity: 0.85; filter: blur(0px); }
+
+        /* --- Part 3: 漂浮光點與故事 --- */
+        #particle-container { position: absolute; inset: 0; z-index: 70; overflow: hidden;}
+        .memory-particle { position: absolute; width: 60px; height: 60px; display: flex; justify-content: center; align-items: center; border-radius: 50%; cursor: none; transition: transform 0.5s ease, opacity 0.5s ease; }
+        .memory-particle::before { content: ''; position: absolute; width: 8px; height: 8px; background-color: rgba(255, 250, 240, 0.6); border-radius: 50%; box-shadow: 0 0 15px rgba(255, 250, 240, 0.4); animation: pulse-light 2.5s infinite alternate; transition: all 0.3s ease; }
+        @keyframes pulse-light { 0% { opacity: 0.3; transform: scale(0.8); } 100% { opacity: 1; transform: scale(2); box-shadow: 0 0 25px rgba(255, 250, 240, 0.8), 0 0 40px rgba(255, 250, 240, 0.3); } }
+        .memory-particle.touched::before { background-color: #9E3B3B; box-shadow: 0 0 50px rgba(158, 59, 59, 1), 0 0 80px rgba(158, 59, 59, 0.8); transform: scale(3.5); animation: none; }
+        .memory-particle.fading { opacity: 0; pointer-events: none; }
+
+        #story-overlay { position: fixed; inset: 0; z-index: 100; background-color: rgba(3, 3, 3, 0.98); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        #story-overlay.active { opacity: 1; pointer-events: auto; }
+        .story-text-container { width: 100vw; padding: 0 8vw; box-sizing: border-box; text-align: center; }
+        #action-text { color: #888; font-size: clamp(0.9rem, 4vw, 1.2rem); letter-spacing: 0.3em; line-height: 2; margin-bottom: 8vh; opacity: 0; transition: opacity 2s ease; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2vh; }
+        #action-text.show { opacity: 1; }
+        #quote-text { color: #9E3B3B; font-size: clamp(1.1rem, 5vw, 1.6rem); letter-spacing: 0.15em; line-height: 2.2; text-shadow: 0 0 20px rgba(158, 59, 59, 0.4); min-height: 20vh; display: flex; align-items: center; justify-content: center; }
+        .typewriter-cursor::after { content: '|'; color: #9E3B3B; animation: blink 1s step-end infinite; margin-left: 5px; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* --- Part 4: 抹除結局 --- */
+        #erasure-screen { position: fixed; inset: 0; z-index: 200; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 2s ease-in; overflow: hidden;}
+        
+        #chaos-camera { position: absolute; inset: 0; z-index: 205; opacity: 0; transition: opacity 3s ease; mix-blend-mode: screen; pointer-events: none;}
+        #chaos-c { width: 100vw; height: 100dvh; object-fit: cover; filter: grayscale(100%) contrast(400%) brightness(0.4) sepia(100%) hue-rotate(330deg) blur(2px); transform: scaleX(-1); }
+
+        .huge-number { font-family: 'Courier Prime', monospace; font-size: clamp(2.5rem, 12vw, 5rem); font-weight: 900; letter-spacing: 0.1em; color: #FFF; text-shadow: 0 0 40px #9E3B3B, 0 0 15px #9E3B3B; background: #000; padding: 15px 5vw; border: 6px solid #9E3B3B; width: 85vw; text-align: center; box-sizing: border-box; transform: scale(3); opacity: 0; transition: all 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); z-index: 210; }
+        .huge-number.stamp { transform: scale(1); opacity: 1; }
+
+        #phase4-layer { position: absolute; inset: 0; z-index: 220; pointer-events: none; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+        
+        /* 巨型壓迫文字 */
+        .massive-chaos-text {
+            position: absolute; left: 50%; transform: translateX(-50%); width: 150vw; text-align: center;
+            font-family: 'Noto Serif TC', serif; font-weight: 900; color: #000;
+            -webkit-text-stroke: 1.5px #9E3B3B; text-shadow: 0 0 20px rgba(158,59,59,0.8), 0 0 40px rgba(255,0,0,0.4);
+            font-size: clamp(3rem, 18vw, 10rem); line-height: 1.1; white-space: normal;
+            opacity: 0; animation: chaosRise 7s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; mix-blend-mode: screen;
+        }
+        @keyframes chaosRise {
+            0% { top: 120dvh; opacity: 0; transform: translateX(-50%) scale(0.6) rotate(-5deg); color: #000; filter: blur(10px); }
+            15% { opacity: 1; transform: translateX(-50%) scale(1) rotate(2deg); color: #9E3B3B; filter: blur(0px); text-shadow: 0 0 50px red; }
+            80% { opacity: 0.9; transform: translateX(-50%) scale(1.3) rotate(-2deg); color: rgba(255,255,255,0.8); filter: blur(1px); text-shadow: 0 0 80px red; }
+            100% { top: -60dvh; opacity: 0; transform: translateX(-50%) scale(1.8) rotate(5deg); filter: blur(20px); }
+        }
+
+        /* 灰燼文字 */
+        .name-ash {
+            position: absolute; left: 0; width: 100vw; padding: 0 10vw; box-sizing: border-box; text-align: center;
+            font-family: 'Noto Serif TC', serif; font-weight: 400; color: #EAE6DF; opacity: 0; text-shadow: 0 0 10px #9E3B3B, 0 0 20px #9E3B3B;
+            animation: ash-ascend 8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; mix-blend-mode: screen; line-height: 1.5; font-size: 1.1rem;
+        }
+        @keyframes ash-ascend {
+            0% { transform: translateY(15dvh) scale(0.8); opacity: 0; filter: blur(0px); color: #FFF; }
+            20% { opacity: 0.9; filter: blur(1px); color: #9E3B3B; }
+            80% { opacity: 0.4; filter: blur(8px); transform: translateY(-30dvh) scale(1.1); }
+            100% { opacity: 0; filter: blur(15px); transform: translateY(-50dvh) scale(1.2); }
+        }
+        
+        .final-message { position: absolute; top: 50%; left: 0; width: 100vw; padding: 0 5vw; box-sizing: border-box; transform: translateY(-50%); font-family: 'Noto Serif TC', serif; font-size: clamp(1.2rem, 5vw, 2rem); letter-spacing: 0.3em; color: #EAE6DF; opacity: 0; transition: opacity 4s ease-in; z-index: 260; text-shadow: 0 0 30px rgba(255,255,255,0.8); text-align: center; line-height: 2.5; }
+
+        /* 最終海報展現 */
+        #final-poster-layer {
+            position: fixed; inset: 0; z-index: 400; background: #000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none; transition: opacity 5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        #final-poster {
+            width: 90vw; max-width: 800px; height: auto;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            transform: scale(0.95); transition: transform 10s ease-out;
+        }
+        #final-poster-layer.show { opacity: 1; pointer-events: auto; }
+        #final-poster-layer.show #final-poster { transform: scale(1); }
+
+        #init-screen { position: fixed; inset: 0; z-index: 300; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; cursor: pointer; transition: opacity 1s; }
+        
+    </style>
+</head>
+<body>
+
+    <div class="grain"></div>
+    
+    <!-- 全域跳過按鈕 (沈浸式) -->
+    <div id="skip-btn">[ 系統覆寫 / OVERRIDE ]</div>
+
+    <div id="init-screen">
+        <h1 class="text-2xl tracking-[0.5em] mb-4 text-[#EAE6DF] font-light">系統待命</h1>
+        <p class="text-xs tracking-widest text-gray-500 mt-4 px-10 text-center leading-loose">點擊畫面啟動監視系統<br>強烈建議開啟聲音並戴上耳機</p>
+        <div id="error-msg" class="mt-8 text-[#9E3B3B] text-xs tracking-widest hidden-sys text-center px-6"></div>
+    </div>
+
+    <video id="v" class="hidden-sys" autoplay playsinline></video>
+
+    <!-- Part 1: 掃描檢查哨 -->
+    <div id="checkpoint-layer" class="hidden-sys">
+        <canvas id="c"></canvas>
+        <img id="captured-img" alt="Captured File">
+        <div class="scanlines"></div>
+        <div class="biometric-scanner" id="scanner-line"></div>
+        <div id="flash"></div>
+
+        <div id="hud">
+            <div style="display: flex; justify-content: space-between;">
+                <div class="hud-text" id="rec-status" style="color:red;">● REC</div>
+                <div class="hud-text text-xs">ID: 0x8A49</div>
+            </div>
+            <div class="crosshair"></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div class="hud-text text-xs tracking-widest">AWAITING SUBJECT</div>
+                <div class="hud-text text-xs tracking-widest" id="timestamp"></div>
+            </div>
+        </div>
+
+        <div id="serial-number"></div>
+        <div id="trigger-zone-btn">長按螢幕進行建檔 / HOLD</div>
+    </div>
+
+    <!-- Part 2 & Part 3 共用暗室層 -->
+    <div id="darkroom-layer" class="hidden-sys">
+        <div class="vignette"></div>
+        <div id="flashlight-mask"></div>
+        
+        <!-- Part 2: 微弱燈光下隱藏的牆上文字 -->
+        <div id="whisper-container"></div>
+
+        <!-- Part 3: 擴大燈光後的漂浮光點 -->
+        <div id="particle-container"></div>
+    </div>
+    
+    <!-- 故事展示層 (Part 3 使用) -->
+    <div id="story-overlay">
+        <div class="story-text-container">
+            <p id="action-text"></p>
+            <div id="quote-text"></div>
+        </div>
+    </div>
+
+    <!-- Part 4: 結局 -->
+    <div id="erasure-screen">
+        <div id="chaos-camera"><canvas id="chaos-c"></canvas></div>
+        <p class="text-xs md:text-sm tracking-widest text-gray-100 mb-12 font-serif relative z-20" id="final-whisper">你不再有名字了。</p>
+        <div id="final-stamp" class="huge-number"></div>
+        <div id="phase4-layer"></div>
+        <div id="final-message" class="final-message">但在煙霧散去前，<br>我們曾真實存在。</div>
+    </div>
+
+    <!-- 最終海報層 -->
+    <div id="final-poster-layer">
+        <!-- 將 src 替換為您專案中的實際檔名 -->
+        <img id="final-poster" src="./黑白主視覺 800x1000px.jpg" alt="煙霧中長大的孩子" onerror="this.src='https://placehold.co/800x400/000000/FFFFFF?text=煙霧中長大的孩子'">
+    </div>
+
+    <!-- 隱藏的背景音樂播放器 -->
+    <audio id="bgm" src="./bgm.mp3.mp3" preload="auto" loop></audio>
+
+    <script>
+        const initScreen = document.getElementById('init-screen');
+        const checkpointLayer = document.getElementById('checkpoint-layer');
+        const darkroomLayer = document.getElementById('darkroom-layer');
+        const erasureScreen = document.getElementById('erasure-screen');
+        const v = document.getElementById('v');
+        const c = document.getElementById('c');
+        const ctx = c.getContext('2d');
+        const chaosC = document.getElementById('chaos-c');
+        const chaosCtx = chaosC.getContext('2d');
+        const triggerBtn = document.getElementById('trigger-zone-btn');
+        const flash = document.getElementById('flash');
+        const capturedImg = document.getElementById('captured-img');
+        const serialNumberEl = document.getElementById('serial-number');
+        const scannerLine = document.getElementById('scanner-line');
+        const particleContainer = document.getElementById('particle-container');
+        
+        const storyOverlay = document.getElementById('story-overlay');
+        const actionEl = document.getElementById('action-text');
+        const quoteEl = document.getElementById('quote-text');
+        
+        const skipBtn = document.getElementById('skip-btn');
+        const bgm = document.getElementById('bgm');
+
+        // 系統狀態
+        let currentPhase = 0; // 0: init, 1: scan, 2: whispers, 3: fireflies, 4: ending
+        let isProcessingCapture = false;
+        let isStoryActive = false;
+        let mySystemId = "";
+        
+        let whisperTimer, fireflyTimer, typeWriterTimer, skipBtnTimer;
+        let particles = [];
+        let whisperZones = []; // 儲存隱藏文字的座標區域
+        let whisperFoundCount = 0;
+        let fireflyFoundCount = 0;
+        
+        // 游標與光圈追蹤
+        let targetX = window.innerWidth / 2;
+        let targetY = window.innerHeight / 2;
+        let currentX = targetX;
+        let currentY = targetY;
+
+        // --- 跳脫按鈕邏輯 ---
+        function scheduleSkipButton() {
+            clearTimeout(skipBtnTimer);
+            skipBtn.classList.remove('show');
+            // 等待 10 秒後緩慢浮現
+            skipBtnTimer = setTimeout(() => {
+                if(currentPhase === 2 || currentPhase === 3) {
+                    skipBtn.classList.add('show');
+                }
+            }, 10000);
+        }
+
+        function hideSkipButton() {
+            clearTimeout(skipBtnTimer);
+            skipBtn.classList.remove('show');
+        }
+
+        function handleSkipClick(e) {
+            e.preventDefault();
+            if(!skipBtn.classList.contains('show')) return;
+            
+            hideSkipButton();
+            triggerShock();
+            playThump(); // 製造突發音效破壞感
+            
+            if (currentPhase === 2) {
+                transitionToDarkRoomFireflies();
+            } else if (currentPhase === 3) {
+                forceEndDarkRoom();
+            }
+        }
+        skipBtn.addEventListener('touchstart', handleSkipClick, {passive: false});
+        skipBtn.addEventListener('mousedown', handleSkipClick);
+
+        // Part 2: 牆上的低語 (微弱燈光下尋找)
+        const scripts = [
+            "告訴她這只是一場捉迷藏。",
+            "別讓她靠近窗戶，絕對不行。",
+            "告訴他，我們現在都沒有名字。",
+            "讓她安靜，給她吃點藥睡覺。",
+            "跟他說爸爸很快就會來接他了。",
+            "不要讓她看到天空飄來的煙。",
+            "告訴他忘記我們以前說過的語言。"
+        ];
+
+        // Part 3: 漂浮的記憶 (光點展開後觸發)
+        const memories = [
+            { action: "他最近開始害怕下雨。", quote: "「滴答，滴答... 聽起來好像那天晚上的聲音。」" },
+            { action: "她把最喜歡的蠟筆藏在鞋子裡。", quote: "「因為鞋子是要穿著跑的，跑的時候，顏色就不會被炸碎。」" },
+            { action: "他總是一直盯著天花板。", quote: "「如果在天花板畫上天空，我們是不是就可以出去了？」" },
+            { action: "她已經三天沒有開口說話了。", quote: "「大人說，只要不出聲，怪物就找不到我們。」" },
+            { action: "她睡前會把耳朵緊緊摀住。", quote: "「就算很安靜的時候，我還是能聽見那種嗡嗡的尖叫聲。」" },
+            { action: "她說黑色的煙聞起來像燒焦的糖果。", quote: "「那是那天媽媽給我的，最後一顆糖果的味道。」" },
+            { action: "她堅持要穿著大人的外套睡覺。", quote: "「外套上還有爸爸的味道，假裝爸爸還在。」" }
+        ];
+
+        // --- 核心特效與音效 ---
+        function triggerShock() {
+            document.body.classList.remove('screen-shake');
+            void document.body.offsetWidth; 
+            document.body.classList.add('screen-shake');
+            if(navigator.vibrate) navigator.vibrate([40, 80, 40]);
+        }
+
+        let audioCtx, humGain, droneGain, heartbeatOsc, heartbeatGain, sirenOsc, sirenGain, scanOsc, scanGain; 
+
+        function initAudio() {
+            if(audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            const humOsc = audioCtx.createOscillator(); humOsc.type = 'sawtooth'; humOsc.frequency.value = 45;
+            humGain = audioCtx.createGain(); humGain.gain.value = 0.2;
+            const humFilter = audioCtx.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 250;
+            humOsc.connect(humFilter).connect(humGain).connect(audioCtx.destination); humOsc.start();
+
+            scanOsc = audioCtx.createOscillator(); scanOsc.type = 'triangle'; scanOsc.frequency.value = 50;
+            scanGain = audioCtx.createGain(); scanGain.gain.value = 0;
+            scanOsc.connect(scanGain).connect(audioCtx.destination); scanOsc.start();
+
+            const droneOsc = audioCtx.createOscillator(); droneOsc.type = 'sine'; droneOsc.frequency.value = 35; 
+            droneGain = audioCtx.createGain(); droneGain.gain.value = 0;
+            droneOsc.connect(droneGain).connect(audioCtx.destination); droneOsc.start();
+
+            heartbeatOsc = audioCtx.createOscillator(); heartbeatOsc.type = 'triangle'; heartbeatOsc.frequency.value = 35;
+            heartbeatGain = audioCtx.createGain(); heartbeatGain.gain.value = 0;
+            const hbFilter = audioCtx.createBiquadFilter(); hbFilter.type = 'lowpass'; hbFilter.frequency.value = 120;
+            heartbeatOsc.connect(hbFilter).connect(heartbeatGain).connect(audioCtx.destination); heartbeatOsc.start();
+
+            sirenOsc = audioCtx.createOscillator(); sirenOsc.type = 'sawtooth'; sirenOsc.frequency.value = 300;
+            sirenGain = audioCtx.createGain(); sirenGain.gain.value = 0;
+            const sirenFilter = audioCtx.createBiquadFilter(); sirenFilter.type = 'bandpass'; sirenFilter.frequency.value = 1000; sirenFilter.Q.value = 5; 
+            sirenOsc.connect(sirenFilter).connect(sirenGain).connect(audioCtx.destination); sirenOsc.start();
+        }
+
+        function playFlashSound() {
+            if(!audioCtx) return;
+            const now = audioCtx.currentTime;
+            const bufferSize = audioCtx.sampleRate * 1.5; 
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource(); noise.buffer = buffer;
+            const noiseFilter = audioCtx.createBiquadFilter(); noiseFilter.type = 'highpass'; noiseFilter.frequency.value = 1000;
+            const noiseGain = audioCtx.createGain(); noiseGain.gain.setValueAtTime(1, now); noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4); 
+            noise.connect(noiseFilter).connect(noiseGain).connect(audioCtx.destination); noise.start(now);
+            
+            const thump = audioCtx.createOscillator(); thump.type = 'square';
+            thump.frequency.setValueAtTime(80, now); thump.frequency.exponentialRampToValueAtTime(10, now + 0.3);
+            const thumpGain = audioCtx.createGain(); thumpGain.gain.setValueAtTime(1, now); thumpGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            thump.connect(thumpGain).connect(audioCtx.destination); thump.start(now); thump.stop(now + 0.5);
+        }
+
+        function playTypeSound() {
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator(); osc.type = 'square';
+            osc.frequency.setValueAtTime(600 + Math.random()*200, audioCtx.currentTime);
+            const gain = audioCtx.createGain(); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+            osc.connect(gain).connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playThump() {
+            if(!audioCtx) return;
+            const now = audioCtx.currentTime;
+            droneGain.gain.setTargetAtTime(0.01, now, 0.1);
+            heartbeatOsc.frequency.setValueAtTime(60, now); heartbeatOsc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+            heartbeatGain.gain.setValueAtTime(0, now); heartbeatGain.gain.linearRampToValueAtTime(1, now + 0.05); heartbeatGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+        }
+
+        function playStampSound() {
+            if(!audioCtx) return;
+            const now = audioCtx.currentTime;
+            droneGain.gain.setTargetAtTime(0, now, 0.1); heartbeatGain.gain.setTargetAtTime(0, now, 0.1);
+            const osc = audioCtx.createOscillator(); osc.type = 'square';
+            osc.frequency.setValueAtTime(80, now); osc.frequency.exponentialRampToValueAtTime(5, now + 0.5);
+            const gain = audioCtx.createGain(); gain.gain.setValueAtTime(1.5, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+            osc.connect(gain).connect(audioCtx.destination); osc.start(now); osc.stop(now + 1.5);
+        }
+
+        function resize() { 
+            c.width = window.innerWidth; c.height = window.innerHeight; 
+            chaosC.width = window.innerWidth; chaosC.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('timestamp').innerText = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        }, 1000);
+
+        function drawLoop() {
+            if(currentPhase === 0) return;
+            const vRatio = v.videoWidth / v.videoHeight; const cRatio = c.width / c.height;
+            let drawW, drawH, drawX, drawY;
+            if (cRatio > vRatio) { drawW = c.width; drawH = c.width / vRatio; drawX = 0; drawY = (c.height - drawH) / 2; } 
+            else { drawH = c.height; drawW = c.height * vRatio; drawX = (c.width - drawW) / 2; drawY = 0; }
+
+            // 繪製 Phase 1 畫面
+            if(currentPhase === 1 && !isProcessingCapture) {
+                ctx.save(); ctx.translate(c.width, 0); ctx.scale(-1, 1); 
+                ctx.drawImage(v, c.width - drawW - drawX, drawY, drawW, drawH); ctx.restore();
+                document.getElementById('rec-status').style.opacity = Math.random() > 0.95 ? 0 : 1;
+            }
+            
+            // 繪製 Phase 4 混亂畫面
+            if(currentPhase === 4 && document.getElementById('chaos-camera').style.opacity > 0) {
+                chaosCtx.drawImage(v, 0, 0, chaosC.width, chaosC.height);
+            }
+            requestAnimationFrame(drawLoop);
+        }
+
+
+        // --- 啟動與掃描建檔 (Part 1) ---
+        initScreen.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 1280 } } });
+                v.srcObject = stream;
+                v.onloadedmetadata = () => {
+                    v.play(); resize(); currentPhase = 1;
+                    initScreen.style.opacity = '0';
+                    setTimeout(() => { initScreen.classList.add('hidden-sys'); checkpointLayer.classList.remove('hidden-sys'); }, 1000);
+                    initAudio(); if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                    
+                    // 為了繞過部分瀏覽器自動播放限制，在第一次點擊時就載入並準備好音樂，但設定音量為 0 並暫停
+                    bgm.volume = 0;
+                    bgm.play().then(() => { bgm.pause(); }).catch(e => console.log("BGM 預先載入延遲", e));
+
+                    drawLoop();
+                };
+            } catch (err) {
+                console.error(err);
+                document.getElementById('error-msg').innerText = "系統存取遭拒，無法啟動鏡頭。";
+                document.getElementById('error-msg').classList.remove('hidden-sys');
+            }
+        });
+
+        let progressInterval; let scanProgress = 0;
+        function startScanning(e) {
+            if(isProcessingCapture || currentPhase !== 1 || (e.touches && e.touches.length > 1)) return;
+            triggerBtn.classList.add('scanning'); triggerBtn.innerText = "SCANNING...";
+            scannerLine.style.opacity = '1';
+            if(audioCtx) scanGain.gain.setTargetAtTime(0.3, audioCtx.currentTime, 0.1);
+
+            progressInterval = setInterval(() => {
+                scanProgress += 2.5; 
+                document.documentElement.style.setProperty('--scan-progress', `${scanProgress}`);
+                if(audioCtx) scanOsc.frequency.setValueAtTime(50 + scanProgress * 15, audioCtx.currentTime);
+                if (navigator.vibrate && scanProgress % 10 === 0) navigator.vibrate(10); 
+                if (scanProgress >= 100) { clearInterval(progressInterval); executeCapture(); }
+            }, 25);
+        }
+
+        function stopScanning() {
+            if (isProcessingCapture || currentPhase !== 1) return;
+            clearInterval(progressInterval); scanProgress = 0;
+            document.documentElement.style.setProperty('--scan-progress', '0'); scannerLine.style.opacity = '0';
+            triggerBtn.classList.remove('scanning'); triggerBtn.innerText = "長按螢幕進行建檔 / HOLD";
+            if(audioCtx) { scanGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1); scanOsc.frequency.setValueAtTime(50, audioCtx.currentTime); }
+        }
+
+        triggerBtn.addEventListener('touchstart', startScanning, {passive: true}); triggerBtn.addEventListener('touchend', stopScanning);
+        triggerBtn.addEventListener('mousedown', startScanning); triggerBtn.addEventListener('mouseup', stopScanning); triggerBtn.addEventListener('mouseleave', stopScanning);
+
+        function executeCapture() {
+            isProcessingCapture = true; triggerBtn.classList.add('hidden-sys'); scannerLine.style.opacity = '0';
+            if(audioCtx) scanGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            triggerShock(); playFlashSound();
+            flash.classList.remove('flash-trigger'); void flash.offsetWidth; flash.classList.add('flash-trigger');
+            
+            capturedImg.src = c.toDataURL('image/jpeg', 0.8); capturedImg.style.opacity = '1';
+            if(humGain) humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1); 
+
+            setTimeout(() => {
+                serialNumberEl.style.opacity = '1'; serialNumberEl.innerHTML = '';
+                const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; mySystemId = "NO.";
+                for(let i=0; i<5; i++) mySystemId += chars.charAt(Math.floor(Math.random() * chars.length)); mySystemId += "-X";
+                
+                let idx = 0;
+                function typeChar() {
+                    if(idx < mySystemId.length) {
+                        serialNumberEl.innerHTML += mySystemId.charAt(idx); playTypeSound(); 
+                        if (navigator.vibrate) navigator.vibrate(20);
+                        idx++; setTimeout(typeChar, 80 + Math.random()*100);
+                    } else { setTimeout(transitionToDarkRoomWhisper, 3000); }
+                }
+                typeChar();
+            }, 800);
+        }
+
+        // 產生微塵
+        function createDust() {
+            const container = document.getElementById('darkroom-layer');
+            for(let i = 0; i < 40; i++) {
+                const dust = document.createElement('div');
+                dust.className = 'dust' + (Math.random() > 0.5 ? ' fg' : '');
+                dust.style.width = Math.random() * 4 + 'px';
+                dust.style.height = dust.style.width;
+                dust.style.left = Math.random() * 100 + 'vw';
+                dust.style.animationDuration = (Math.random() * 10 + 10) + 's';
+                dust.style.animationDelay = (Math.random() * 10) + 's';
+                container.appendChild(dust);
+            }
+        }
+
+        // --- Part 2: 微弱燈光暗室 ---
+        function transitionToDarkRoomWhisper() {
+            capturedImg.classList.add('burn-away'); serialNumberEl.style.opacity = '0'; document.getElementById('hud').classList.add('hidden-sys');
+            droneGain.gain.setTargetAtTime(0.6, audioCtx.currentTime, 4); 
+            heartbeatGain.gain.setTargetAtTime(0.3, audioCtx.currentTime, 5);
+            
+            setTimeout(() => {
+                checkpointLayer.style.opacity = '0';
+                setTimeout(() => {
+                    checkpointLayer.classList.add('hidden-sys'); darkroomLayer.classList.remove('hidden-sys');
+                    startPart2();
+                }, 2000);
+            }, 4000); 
+        }
+
+        function startPart2() {
+            currentPhase = 2;
+            
+            // 極微弱的手電筒光圈
+            setTimeout(() => { document.documentElement.style.setProperty('--light-size', '20vmin'); }, 1000);
+            
+            createDust();
+            setupWhispers();
+            animateFlashlight();
+
+            // 開始計時按鈕浮現
+            scheduleSkipButton();
+
+            // 如果玩家 30 秒內沒找齊，強制進入下一個階段防卡關
+            whisperTimer = setTimeout(() => {
+                if(currentPhase === 2) transitionToDarkRoomFireflies();
+            }, 30000);
+        }
+
+        // 建立文字並記錄 Y 座標
+        function setupWhispers() {
+            const container = document.getElementById('whisper-container');
+            const h = window.innerHeight;
+            whisperZones = [];
+
+            scripts.forEach((text, index) => {
+                const yBase = h * 0.15 + (h * 0.7 * (index / scripts.length));
+                const yOffset = (Math.random() - 0.5) * (h * 0.05); 
+                const y = yBase + yOffset;
+
+                const textEl = document.createElement('div');
+                textEl.className = 'memory-fragment'; textEl.innerText = text;
+                textEl.style.top = `${y}px`;
+                container.appendChild(textEl);
+                
+                // 將文字座標存起來，待會在 animateFlashlight 裡進行手電筒距離偵測
+                whisperZones.push({ y: y, el: textEl, found: false });
+            });
+        }
+
+        // --- Part 3: 記憶光點暗室 ---
+        function transitionToDarkRoomFireflies() {
+            if(currentPhase !== 2) return;
+            currentPhase = 3;
+            clearTimeout(whisperTimer);
+            hideSkipButton();
+            
+            // 轉換衝擊：畫面震動、心跳聲加劇
+            playThump(); triggerShock();
+            
+            document.documentElement.style.setProperty('--light-color', 'rgba(200, 0, 0, 0.3)');
+            setTimeout(() => {
+                document.documentElement.style.setProperty('--light-color', 'transparent');
+                // 手電筒瞬間擴大
+                document.documentElement.style.setProperty('--light-size', '65vmin');
+            }, 150);
+
+            // 隱藏牆上的低語文字
+            document.querySelectorAll('.memory-fragment').forEach(el => {
+                el.style.opacity = '0';
+            });
+            
+            setTimeout(() => {
+                document.getElementById('whisper-container').innerHTML = '';
+                initFireflies();
+                resetFireflyTimer();
+                scheduleSkipButton(); // 光點階段也安排跳脫按鈕
+            }, 1000);
+        }
+
+        function resetFireflyTimer() {
+            clearTimeout(fireflyTimer);
+            if(currentPhase === 3) {
+                // 30 秒無動作自動進入結局
+                fireflyTimer = setTimeout(() => {
+                    if(!isStoryActive) forceEndDarkRoom();
+                }, 30000);
+            }
+        }
+
+        function initFireflies() {
+            const w = window.innerWidth; const h = window.innerHeight;
+            let fireflyPool = [...memories, ...memories];
+            fireflyPool.sort(() => Math.random() - 0.5);
+
+            fireflyPool.forEach((memory) => {
+                const particle = document.createElement('div'); particle.className = 'memory-particle';
+                let x = Math.random() * (w * 0.8) + (w * 0.1); let y = Math.random() * (h * 0.8) + (h * 0.1);
+                particle.style.left = `${x}px`; particle.style.top = `${y}px`;
+                const driftState = { baseX: x, baseY: y, offsetX: 0, offsetY: 0, speedX: (Math.random() - 0.5) * 1.5, speedY: (Math.random() - 0.5) * 1.5, element: particle };
+                particles.push(driftState);
+
+                const triggerEvent = (e) => {
+                    e.preventDefault(); 
+                    if (isStoryActive || particle.classList.contains('fading') || currentPhase !== 3) return;
+                    clearTimeout(fireflyTimer); 
+                    playThump(); triggerShock(); particle.classList.add('touched');
+                    openStory(memory, particle);
+                };
+                // 點擊光點不影響，因為點擊是明確動作
+                particle.addEventListener('touchstart', triggerEvent, {passive: false}); particle.addEventListener('mousedown', triggerEvent);
+                particleContainer.appendChild(particle);
+            });
+        }
+
+        function openStory(memory, particleEl) {
+            isStoryActive = true; clearTimeout(typeWriterTimer);
+            actionEl.innerHTML = memory.action; actionEl.classList.remove('show');
+            quoteEl.innerHTML = ''; quoteEl.classList.add('typewriter-cursor');
+            storyOverlay.classList.add('active');
+            
+            hideSkipButton(); // 進入故事閱讀時暫時隱藏跳脫鈕避免干擾
+
+            setTimeout(() => { actionEl.classList.add('show'); }, 800);
+            setTimeout(() => {
+                let i = 0;
+                function typeWriter() {
+                    if (i < memory.quote.length) {
+                        let char = memory.quote.charAt(i); quoteEl.innerHTML += char;
+                        if (navigator.vibrate && char.trim() !== '') navigator.vibrate(10);
+                        i++;
+                        let delay = (['，', '。', '？', '！', '...'].includes(char)) ? 600 : Math.random() * 80 + 50;
+                        typeWriterTimer = setTimeout(typeWriter, delay);
+                    } else {
+                        quoteEl.classList.remove('typewriter-cursor');
+                        setTimeout(() => { closeStory(particleEl); }, 2500); 
+                    }
+                }
+                typeWriter();
+            }, 2000); 
+        }
+
+        function closeStory(particleEl) {
+            storyOverlay.classList.remove('active');
+            if(audioCtx && droneGain) droneGain.gain.setTargetAtTime(0.8, audioCtx.currentTime, 2);
+            particleEl.classList.add('fading');
+            
+            setTimeout(() => { 
+                isStoryActive = false; fireflyFoundCount++;
+                // 找齊 3 個光點故事，進入最終結局
+                if (fireflyFoundCount >= 3) {
+                    forceEndDarkRoom();
+                } else {
+                    resetFireflyTimer();
+                    scheduleSkipButton(); // 恢復計時按鈕浮現
+                }
+            }, 800);
+        }
+
+        // --- 共用手電筒追蹤與判定 ---
+        function animateFlashlight() {
+            if (currentPhase !== 2 && currentPhase !== 3) return;
+            currentX += (targetX - currentX) * 0.15; currentY += (targetY - currentY) * 0.15;
+            let flickerVal = (Math.random() * 6 - 3); 
+            document.documentElement.style.setProperty('--cursor-x', `${currentX}px`);
+            document.documentElement.style.setProperty('--cursor-y', `${currentY}px`);
+            document.documentElement.style.setProperty('--flicker', `${flickerVal}px`);
+
+            // Part 2: 即時偵測手電筒 Y 軸是否靠近隱藏文字 (手機滑動的完美解法)
+            if (currentPhase === 2) {
+                const threshold = window.innerHeight * 0.08; // 靠近 8vh 內就會觸發
+                whisperZones.forEach(zone => {
+                    if (!zone.found && Math.abs(currentY - zone.y) < threshold) {
+                        zone.found = true;
+                        zone.el.classList.add('revealed');
+                        
+                        document.documentElement.style.setProperty('--light-color', 'rgba(150, 0, 0, 0.4)');
+                        setTimeout(() => document.documentElement.style.setProperty('--light-color', 'transparent'), 120);
+
+                        if(heartbeatOsc) heartbeatOsc.frequency.setTargetAtTime(35 + (whisperFoundCount*5), audioCtx.currentTime, 1);
+                        if (navigator.vibrate) navigator.vibrate(20);
+
+                        whisperFoundCount++;
+                        if (whisperFoundCount >= scripts.length) {
+                            clearTimeout(whisperTimer);
+                            setTimeout(transitionToDarkRoomFireflies, 3000);
+                        }
+                    }
+                });
+            }
+
+            // Part 3: 漂浮光點的動畫
+            if (currentPhase === 3 && !isStoryActive) {
+                const w = window.innerWidth; const h = window.innerHeight;
+                particles.forEach(p => {
+                    p.baseX += p.speedX; p.baseY += p.speedY;
+                    if (p.baseX < w*0.05 || p.baseX > w*0.95) p.speedX *= -1;
+                    if (p.baseY < h*0.05 || p.baseY > h*0.95) p.speedY *= -1;
+                    const time = Date.now() * 0.001;
+                    p.offsetX = Math.sin(time + p.baseX) * 20; p.offsetY = Math.cos(time + p.baseY) * 20;
+                    p.element.style.transform = `translate(${p.offsetX}px, ${p.offsetY}px)`;
+                });
+            }
+            requestAnimationFrame(animateFlashlight);
+        }
+
+        window.addEventListener('touchmove', e => { 
+            if(e.touches.length > 0) { 
+                targetX = e.touches[0].clientX; targetY = e.touches[0].clientY; 
+                if(currentPhase === 3 && !isStoryActive) resetFireflyTimer(); 
+            } 
+        }, {passive: true});
+        window.addEventListener('mousemove', e => { targetX = e.clientX; targetY = e.clientY; });
+
+
+        // --- Part 4: 結局與抹除 ---
+        function forceEndDarkRoom() {
+            if(currentPhase === 4) return;
+            currentPhase = 4;
+            
+            clearTimeout(fireflyTimer); clearTimeout(whisperTimer);
+            hideSkipButton();
+            triggerShock(); 
+            
+            // 閃爍關閉手電筒特效
+            let flickerCount = 0;
+            let flickerInterval = setInterval(() => {
+                document.documentElement.style.setProperty('--light-size', flickerCount % 2 === 0 ? '10vmin' : '85vmin');
+                flickerCount++;
+                if(flickerCount > 6) { clearInterval(flickerInterval); document.documentElement.style.setProperty('--light-size', '0px'); }
+            }, 80);
+            
+            storyOverlay.classList.remove('active');
+            
+            setTimeout(() => {
+                erasureScreen.style.opacity = '1';
+                setTimeout(() => {
+                    document.getElementById('final-whisper').style.opacity = '0';
+                    const stamp = document.getElementById('final-stamp');
+                    stamp.innerText = mySystemId; stamp.classList.add('stamp');
+                    playStampSound(); triggerShock(); 
+                    
+                    setTimeout(startPhase4, 3000);
+                }, 3500); 
+            }, 2000);
+        }
+
+        function startPhase4() {
+            if(!audioCtx) return;
+            const now = audioCtx.currentTime;
+            
+            // 1. 防空警報啟動
+            sirenGain.gain.setValueAtTime(0, now); sirenGain.gain.linearRampToValueAtTime(0.8, now + 3);
+            let sirenVibration = setInterval(() => { triggerShock(); }, 1200); 
+            
+            for(let i=0; i<4; i++) {
+                let startTime = now + i*6;
+                sirenOsc.frequency.setValueAtTime(300, startTime);
+                sirenOsc.frequency.exponentialRampToValueAtTime(800, startTime + 3); 
+                sirenOsc.frequency.exponentialRampToValueAtTime(300, startTime + 6);
+            }
+
+            // 2. 融化編號印章
+            const stamp = document.getElementById('final-stamp');
+            stamp.style.transition = 'all 4s ease-in'; stamp.style.transform = 'scale(1.5)'; stamp.style.filter = 'blur(10px)'; stamp.style.opacity = '0'; stamp.style.color = '#9E3B3B';
+
+            // 3. 背景浮現殘缺鏡頭
+            document.getElementById('chaos-camera').style.opacity = '0.3';
+
+            const phase4Layer = document.getElementById('phase4-layer');
+            let chaosCount = 0;
+            let ashCount = 0;
+            
+            // 4. 釋放巨型恐懼文字 (來自 memories)
+            const chaosInterval = setInterval(() => {
+                if(chaosCount >= memories.length) {
+                    clearInterval(chaosInterval); clearInterval(ashInterval); clearInterval(sirenVibration); 
+                    
+                    // 結束一切，回歸死寂，並準備最後的海報與音樂
+                    setTimeout(() => {
+                        document.getElementById('chaos-camera').style.opacity = '0';
+                        document.getElementById('final-message').style.opacity = '1';
+                        sirenGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 4);
+                        droneGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 4);
+                        
+                        // 讓文字停留 5 秒後，緩慢浮現最終海報與音樂
+                        setTimeout(() => {
+                            document.getElementById('final-message').style.opacity = '0'; // 隱藏文字
+                            const posterLayer = document.getElementById('final-poster-layer');
+                            posterLayer.classList.add('show');
+                            
+                            // 開始播放背景音樂並淡入音量
+                            bgm.play();
+                            let vol = 0;
+                            const fadeAudio = setInterval(() => {
+                                vol += 0.05;
+                                if (vol >= 1) {
+                                    clearInterval(fadeAudio);
+                                    vol = 1;
+                                }
+                                bgm.volume = vol;
+                            }, 200); // 每 200 毫秒增加 0.05 音量
+
+                            // 釋放攝影機資源，節省手機效能
+                            if (v.srcObject) {
+                                v.srcObject.getTracks().forEach(track => track.stop());
+                            }
+                        }, 5000);
+
+                    }, 5000);
+                    return;
+                }
+                
+                const word = document.createElement('div'); word.className = 'massive-chaos-text';
+                word.innerText = memories[chaosCount].quote.replace(/[「」]/g, '');
+                word.style.animationDelay = (Math.random() * 0.5) + 's';
+                
+                if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+                phase4Layer.appendChild(word); chaosCount++;
+            }, 1200); 
+
+            // 5. 釋放飄散灰燼 (來自 scripts)
+            const ashInterval = setInterval(() => {
+                if(ashCount >= scripts.length) return;
+                const ash = document.createElement('div'); ash.className = 'name-ash';
+                ash.innerText = scripts[ashCount];
+                ash.style.animationDelay = (Math.random() * 0.5) + 's';
+                phase4Layer.appendChild(ash); ashCount++;
+            }, 800);
+        }
+    </script>
+</body>
+</html>
