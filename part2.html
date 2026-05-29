@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>灰燼中的迴音 | 沈浸式互動劇場</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@200;300;400;700&display=swap');
+        
+        :root { --brand-color: #fca5a5; }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
+            font-family: 'Noto Serif TC', serif;
+            user-select: none; -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        /* 3D 畫布容器 */
+        #canvas-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1; opacity: 0; transition: opacity 2s ease-in-out;
+        }
+
+        /* 迷霧擦拭層 */
+        #fog-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 8; opacity: 0; pointer-events: none; transition: opacity 1s ease;
+        }
+
+        /* 新增：雙指連線與漣漪畫布 */
+        #interaction-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 9; opacity: 1; pointer-events: none;
+        }
+
+        /* 新增：碎裂特效層 */
+        #shatter-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 7; pointer-events: none; overflow: hidden;
+        }
+        
+        .crack-line {
+            position: absolute; background: rgba(255, 255, 255, 0.8);
+            transform-origin: top center;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+            animation: crack-grow 0.1s ease-out forwards;
+        }
+
+        @keyframes crack-grow {
+            0% { transform: scaleY(0) rotate(var(--rot)); opacity: 1; }
+            100% { transform: scaleY(1) rotate(var(--rot)); opacity: 0.6; }
+        }
+
+        /* 新增：水波紋漣漪特效 */
+        .ripple {
+            position: absolute; border: 2px solid rgba(255, 150, 100, 0.6);
+            border-radius: 50%; transform: translate(-50%, -50%) scale(0);
+            animation: ripple-expand 2s ease-out forwards;
+            pointer-events: none; z-index: 10;
+            box-shadow: 0 0 20px rgba(255, 100, 50, 0.4);
+        }
+
+        @keyframes ripple-expand {
+            0% { transform: translate(-50%, -50%) scale(0.2); opacity: 1; border-width: 4px; }
+            100% { transform: translate(-50%, -50%) scale(5); opacity: 0; border-width: 0px; }
+        }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 15; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; pointer-events: none;
+        }
+
+        .text-block {
+            color: #fff; text-align: center; visibility: hidden; opacity: 0;
+            transition: opacity 2s ease-in-out, transform 2s ease-out, filter 1s ease;
+            transform: translate(-50%, calc(-50% + 20px));
+            position: absolute; top: 50%; left: 50%; width: 90%; max-width: 800px;
+            pointer-events: none; text-shadow: 0 4px 20px rgba(0,0,0,0.9);
+        }
+
+        .text-block.active {
+            visibility: visible; opacity: 1; transform: translate(-50%, -50%); pointer-events: auto;
+        }
+
+        .blur-extreme { filter: blur(12px) brightness(0.5); transform: translate(-50%, -50%) scale(1.1) !important; }
+
+        #start-btn {
+            pointer-events: auto; position: relative; background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.4); color: white; padding: 18px 50px;
+            border-radius: 40px; font-size: 1.2rem; letter-spacing: 6px; cursor: pointer;
+            transition: all 0.5s ease; font-family: 'Noto Serif TC', serif;
+            backdrop-filter: blur(5px); overflow: hidden;
+        }
+
+        #start-btn::before {
+            content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: all 0.5s;
+        }
+        #start-btn:hover::before { left: 100%; transition: all 1s; }
+        #start-btn:active { transform: scale(0.95); background: rgba(255, 255, 255, 0.1); }
+
+        #interaction-ring {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 100px; height: 100px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: none; display: none; z-index: 14; transition: box-shadow 0.2s, width 0.2s, height 0.2s;
+        }
+
+        .hint-text {
+            position: absolute; bottom: 8%; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.6); font-size: 0.95rem; letter-spacing: 4px;
+            display: none; z-index: 20; animation: pulse-opacity 3s infinite;
+        }
+
+        @keyframes pulse-opacity { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+
+        #vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, rgba(0,0,0,1) 100%);
+            z-index: 2; opacity: 0; pointer-events: none; transition: opacity 0.5s;
+        }
+
+        #flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #fff; z-index: 999; opacity: 0; pointer-events: none;
+        }
+
+        #theater-glow {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, rgba(255, 120, 80, 0.8) 0%, rgba(0,0,0,1) 80%);
+            z-index: 5; opacity: 0; pointer-events: none;
+        }
+
+        .breathing-glow { animation: deep-breathe 4s infinite cubic-bezier(0.4, 0, 0.2, 1); }
+
+        @keyframes deep-breathe {
+            0%, 100% { opacity: 0.1; transform: scale(0.9); }
+            50% { opacity: 0.9; transform: scale(1.1); }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="shatter-layer"></div>
+    <canvas id="fog-canvas"></canvas>
+    <canvas id="interaction-canvas"></canvas>
+    
+    <div id="vignette"></div>
+    <div id="flash"></div>
+    <div id="theater-glow"></div>
+    <div id="interaction-ring"></div>
+
+    <div id="ui-layer">
+        <!-- 序章 -->
+        <div id="step-0" class="text-block active flex flex-col items-center">
+            <h1 class="text-4xl md:text-6xl font-light mb-6 tracking-[0.3em] ml-3">身後</h1>
+            <p class="text-sm md:text-base text-gray-400 mb-16 tracking-widest font-light">
+                沈浸式互動劇場體驗<br><br>
+                <span class="text-xs text-gray-500">強烈建議配戴耳機，並開啟裝置聲音</span>
+            </p>
+            <button id="start-btn">進入記憶</button>
+        </div>
+
+        <!-- 階段一：冰冷長廊與壓迫 -->
+        <div id="step-1-1" class="text-block">
+            <h2 class="text-2xl md:text-4xl font-light tracking-[0.2em] leading-loose">走在冰冷的長廊，<br>盡頭沒有光。</h2>
+        </div>
+        <div id="step-1-2" class="text-block">
+            <h2 class="text-2xl md:text-4xl font-light tracking-[0.2em] leading-loose text-gray-300">腳步無法停止，<br>呼吸越來越沉重。</h2>
+        </div>
+        <div id="step-1-3" class="text-block">
+            <h2 class="text-2xl md:text-4xl font-bold tracking-[0.2em] leading-loose text-white">「抱歉，只能陪你到這裡了。」</h2>
+        </div>
+
+        <!-- 新增：階段一點五：敲碎隔閡 -->
+        <div id="step-1-5" class="text-block">
+            <h2 class="text-xl md:text-3xl font-light tracking-[0.2em] leading-loose text-gray-300">
+                有一道無形的牆，<br>將我們隔開了。
+            </h2>
+        </div>
+
+        <!-- 階段二：過渡與擦拭 -->
+        <div id="step-2" class="text-block">
+            <h2 class="text-2xl md:text-4xl font-light tracking-[0.2em] leading-loose text-gray-400">
+                世界被灰白掩蓋...<br>我看不見你了。
+            </h2>
+        </div>
+
+        <!-- 階段三：重生與微光 -->
+        <div id="step-3-1" class="text-block pointer-events-none">
+            <h2 class="text-2xl md:text-4xl font-light tracking-[0.2em] leading-loose text-orange-100">他們說你離開了，</h2>
+        </div>
+        <div id="step-3-2" class="text-block pointer-events-none">
+            <h2 class="text-2xl md:text-4xl font-light tracking-[0.2em] leading-loose text-orange-200" style="text-shadow: 0 0 20px rgba(255,165,0,0.5);">但我看見你化作滿天星火。</h2>
+        </div>
+
+        <!-- 階段四：劇場模式 -->
+        <div id="step-4" class="text-block pointer-events-none">
+            <div class="p-8 border border-white/20 rounded-2xl bg-black/40 backdrop-blur-md pointer-events-auto shadow-2xl">
+                <p class="text-orange-400 tracking-[0.3em] text-sm mb-6 animate-pulse">【 劇場指示 】</p>
+                <h2 class="text-xl md:text-2xl font-light tracking-[0.2em] leading-loose text-white mb-6">
+                    請將手機螢幕朝外，<br>貼近你的心口。
+                </h2>
+                <p class="text-gray-400 mt-2 leading-relaxed tracking-wider text-sm">
+                    讓你的心跳，成為照亮這座劇場的光。
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 互動提示語 -->
+    <div id="hint-hold" class="hint-text">長按螢幕感受心跳</div>
+    <div id="hint-tap-break" class="hint-text text-red-300">連續點擊螢幕，打破隔閡</div>
+    <div id="hint-scratch" class="hint-text">在螢幕上滑動，擦去迷霧</div>
+    <div id="hint-gather" class="hint-text">單指引導光芒，雙指牽起思念的線</div>
+    <div id="hint-ripple" class="hint-text text-orange-200">輕觸螢幕，傳遞你的微光</div>
+
+    <script>
+        // 0: 序章, 1: 隧道(長按), 1.5: 碎裂(點擊), 2: 迷霧(擦拭), 3: 螢火蟲(雙指), 4: 劇場(漣漪)
+        let currentPhase = 0; 
+        
+        let audioCtx, bgNoise, filter, heartbeatSynth, tinnitusSynth;
+        let ambientPad, chimeSynth, scratchNoise;
+        // 新增音效變數
+        let crackSynth, shatterSynth, chordSynth, rippleSynth;
+        let isAudioReady = false;
+
+        async function initAudio() {
+            if (isAudioReady) return;
+            try {
+                await Tone.start();
+                
+                // 1. 背景低頻噪音
+                filter = new Tone.Filter(150, "lowpass").toDestination();
+                bgNoise = new Tone.Noise("pink").connect(filter);
+                bgNoise.volume.value = -15;
+
+                // 2. 心跳聲
+                heartbeatSynth = new Tone.MembraneSynth({
+                    pitchDecay: 0.05, octaves: 2, oscillator: { type: "sine" },
+                    envelope: { attack: 0.01, decay: 0.4, sustain: 0.01, release: 1.2 }
+                }).toDestination();
+                heartbeatSynth.volume.value = 8;
+
+                // 3. 死亡耳鳴
+                tinnitusSynth = new Tone.Oscillator(7000, "sine").toDestination();
+                tinnitusSynth.volume.value = -Infinity;
+
+                // 4. 破冰裂痕聲 (高頻短促)
+                crackSynth = new Tone.NoiseSynth({
+                    noise: { type: 'white' },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 }
+                }).toDestination();
+                crackSynth.volume.value = -5;
+
+                shatterSynth = new Tone.MetalSynth({
+                    frequency: 200, envelope: { attack: 0.001, decay: 1.5, release: 0.2 },
+                    harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5
+                }).toDestination();
+                shatterSynth.volume.value = -10;
+
+                // 5. 擦拭沙沙聲
+                const scratchFilter = new Tone.Filter(2000, "highpass").toDestination();
+                scratchNoise = new Tone.Noise("white").connect(scratchFilter);
+                scratchNoise.volume.value = -Infinity;
+                scratchNoise.start();
+
+                // 6. 重生環境和弦 & 雙指連結和弦
+                const reverb = new Tone.Reverb(6).toDestination();
+                ambientPad = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "sine" },
+                    envelope: { attack: 3, decay: 2, sustain: 0.8, release: 5 }
+                }).connect(reverb);
+                ambientPad.volume.value = -15;
+
+                chordSynth = new Tone.PolySynth(Tone.FMSynth, {
+                    oscillator: { type: "sine" },
+                    envelope: { attack: 1, decay: 0.5, sustain: 1, release: 2 }
+                }).connect(reverb);
+                chordSynth.volume.value = -12;
+
+                // 7. 螢火蟲點擊/漣漪音
+                chimeSynth = new Tone.PolySynth(Tone.FMSynth, {
+                    harmonicity: 3, modulationIndex: 10, oscillator: { type: "sine" },
+                    envelope: { attack: 0.1, decay: 0.3, sustain: 0.1, release: 2 }
+                }).connect(reverb);
+                chimeSynth.volume.value = -10;
+
+                rippleSynth = new Tone.MembraneSynth({
+                    pitchDecay: 0.1, octaves: 4, oscillator: { type: "sine" },
+                    envelope: { attack: 0.01, decay: 0.8, sustain: 0, release: 1 }
+                }).connect(reverb);
+                rippleSynth.volume.value = -8;
+
+                isAudioReady = true;
+            } catch (error) { console.error("Audio init failed:", error); }
+        }
+
+        let heartbeatEvent;
+        function setHeartbeat(rateMs) {
+            if (!isAudioReady || !heartbeatSynth) return;
+            clearInterval(heartbeatEvent);
+            if (rateMs > 0) {
+                heartbeatEvent = setInterval(() => {
+                    try { heartbeatSynth.triggerAttackRelease("C1", "8n"); } catch(e){}
+                }, rateMs);
+            }
+        }
+
+        let scene, camera, renderer;
+        let particles, geometry, material;
+        const particleCount = 8000;
+        
+        let mouse = new THREE.Vector2(0, 0);
+        let targetMouse = new THREE.Vector2(0, 0);
+        let gyroOffset = new THREE.Vector2(0, 0);
+        
+        let isHoldingDown = false;
+        let holdProgress = 0; 
+        let crackCount = 0; // 用於紀錄敲碎進度
+
+        function createParticleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.2, 'rgba(255, 200, 150, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(255, 100, 50, 0.2)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            context.fillStyle = gradient; context.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x05050a, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.z = 100;
+
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const sizes = new Float32Array(particleCount);
+
+            const colorBase = new THREE.Color(0x8899aa);
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 400; 
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 400; 
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 1000; 
+
+                colors[i * 3] = colorBase.r + Math.random() * 0.1;
+                colors[i * 3 + 1] = colorBase.g + Math.random() * 0.1;
+                colors[i * 3 + 2] = colorBase.b + Math.random() * 0.1;
+                sizes[i] = Math.random() * 2 + 1;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            material = new THREE.PointsMaterial({
+                size: 2, map: createParticleTexture(), vertexColors: true,
+                transparent: true, opacity: 0.6, depthWrite: false,
+                blending: THREE.AdditiveBlending, sizeAttenuation: true
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            window.addEventListener('resize', onWindowResize, false);
+            
+            // 陀螺儀事件 (增加劇場沉浸感)
+            window.addEventListener('deviceorientation', (e) => {
+                if (e.beta && e.gamma) {
+                    let x = Math.max(-45, Math.min(45, e.gamma));
+                    let y = Math.max(-45, Math.min(45, e.beta - 45)); 
+                    gyroOffset.x = (x / 45); gyroOffset.y = -(y / 45);
+                }
+            });
+
+            animate();
+        }
+
+        function onWindowResize() {
+            if(camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                if(fogCanvas) {
+                    fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight;
+                    if(currentPhase === 2) fillFog();
+                }
+                if(interactCanvas) {
+                    interactCanvas.width = window.innerWidth; interactCanvas.height = window.innerHeight;
+                }
+            }
+        }
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!geometry || !renderer) return;
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+            const positions = geometry.attributes.position.array;
+            
+            mouse.lerp(targetMouse, 0.1);
+            let camTargetX = (mouse.x * 20) + (gyroOffset.x * 30);
+            let camTargetY = (mouse.y * 20) + (gyroOffset.y * 30);
+            camera.position.x += (camTargetX - camera.position.x) * 0.05;
+            camera.position.y += (camTargetY - camera.position.y) * 0.05;
+
+            if (currentPhase === 1) {
+                // 長廊穿梭與震動
+                let baseSpeed = 1.0;
+                let pressureSpeed = isHoldingDown ? 4.0 * (holdProgress/100) : 0;
+                camera.position.z -= (baseSpeed + pressureSpeed);
+
+                if (isHoldingDown && holdProgress > 20) {
+                    let shake = (holdProgress / 100) * 1.5;
+                    camera.position.x += (Math.random() - 0.5) * shake;
+                    camera.position.y += (Math.random() - 0.5) * shake;
+                }
+                for (let i = 0; i < particleCount; i++) {
+                    if (positions[i * 3 + 2] > camera.position.z + 50) positions[i * 3 + 2] -= 1000;
+                }
+            } 
+            else if (currentPhase >= 3) {
+                // 螢火蟲漂浮與引力
+                camera.position.z += (0 - camera.position.z) * 0.02;
+                scene.rotation.y += 0.0005;
+
+                let vec = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+                vec.unproject(camera);
+                vec.sub(camera.position).normalize();
+                let distance = -camera.position.z / vec.z;
+                let worldTarget = new THREE.Vector3().copy(camera.position).add(vec.multiplyScalar(distance));
+
+                for (let i = 0; i < particleCount; i++) {
+                    positions[i * 3 + 1] += 0.05 + Math.sin(time * 2 + i) * 0.05;
+                    positions[i * 3] += Math.cos(time + i) * 0.02;
+
+                    // 單指或雙指觸摸時產生引力
+                    if (isHoldingDown && currentPhase === 3) {
+                        let px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
+                        let dx = worldTarget.x - px, dy = worldTarget.y - py, dz = worldTarget.z - 100 - pz;
+                        let distSq = dx*dx + dy*dy + dz*dz;
+                        if (distSq > 10) {
+                            let force = 20 / distSq; force = Math.min(force, 2);
+                            positions[i * 3] += dx * force * delta;
+                            positions[i * 3 + 1] += dy * force * delta;
+                            positions[i * 3 + 2] += dz * force * delta;
+                        }
+                    }
+                    if (positions[i * 3 + 1] > 300) {
+                        positions[i * 3 + 1] = -300;
+                        positions[i * 3] = (Math.random() - 0.5) * 600;
+                        positions[i * 3 + 2] = (Math.random() - 0.5) * 600;
+                    }
+                }
+            }
+            geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        const fogCanvas = document.getElementById('fog-canvas');
+        const fogCtx = fogCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const interactCanvas = document.getElementById('interaction-canvas');
+        const interactCtx = interactCanvas.getContext('2d');
+
+        function initCanvases() {
+            fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight;
+            interactCanvas.width = window.innerWidth; interactCanvas.height = window.innerHeight;
+        }
+
+        function fillFog() {
+            fogCtx.globalCompositeOperation = 'source-over';
+            fogCtx.fillStyle = '#b0b5ba'; fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+            for(let i=0; i<1000; i++) {
+                fogCtx.fillStyle = `rgba(255,255,255,${Math.random()*0.1})`;
+                fogCtx.beginPath();
+                fogCtx.arc(Math.random()*fogCanvas.width, Math.random()*fogCanvas.height, Math.random()*10, 0, Math.PI*2);
+                fogCtx.fill();
+            }
+        }
+
+        // 擦拭迷霧邏輯
+        let isScratching = false; let scratchLastPos = {x:0, y:0}; let scratchCount = 0;
+        function doScratch(clientX, clientY) {
+            fogCtx.globalCompositeOperation = 'destination-out';
+            fogCtx.lineWidth = 90; fogCtx.lineCap = 'round'; fogCtx.lineJoin = 'round';
+            fogCtx.shadowBlur = 30; fogCtx.shadowColor = 'black';
+            fogCtx.beginPath(); fogCtx.moveTo(scratchLastPos.x, scratchLastPos.y);
+            fogCtx.lineTo(clientX, clientY); fogCtx.stroke();
+            scratchLastPos = {x: clientX, y: clientY};
+
+            scratchCount++;
+            if(scratchCount % 10 === 0) {
+                const imgData = fogCtx.getImageData(0, 0, fogCanvas.width, fogCanvas.height).data;
+                let clearCount = 0; const step = 16;
+                for (let i = 3; i < imgData.length; i += 4 * step) { if (imgData[i] === 0) clearCount++; }
+                if (clearCount / (imgData.length / (4 * step)) > 0.4) transitionToFireflies();
+            }
+        }
+
+        // 雙指連線邏輯
+        let isDrawingLine = false;
+        function drawConnectionLine(t1, t2) {
+            interactCtx.clearRect(0, 0, interactCanvas.width, interactCanvas.height);
+            interactCtx.beginPath();
+            interactCtx.moveTo(t1.clientX, t1.clientY);
+            interactCtx.lineTo(t2.clientX, t2.clientY);
+            
+            // 發光漸層線條
+            let grad = interactCtx.createLinearGradient(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            grad.addColorStop(0.2, 'rgba(255, 200, 100, 0.8)');
+            grad.addColorStop(0.8, 'rgba(255, 200, 100, 0.8)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            
+            interactCtx.strokeStyle = grad;
+            interactCtx.lineWidth = 4;
+            interactCtx.shadowBlur = 20;
+            interactCtx.shadowColor = '#ff9900';
+            interactCtx.stroke();
+            
+            // 兩端發光點
+            interactCtx.fillStyle = '#fff';
+            interactCtx.beginPath(); interactCtx.arc(t1.clientX, t1.clientY, 5, 0, Math.PI*2); interactCtx.fill();
+            interactCtx.beginPath(); interactCtx.arc(t2.clientX, t2.clientY, 5, 0, Math.PI*2); interactCtx.fill();
+        }
+
+        function handlePointerDown(e) {
+            if(e.target.id === 'start-btn') return;
+            let clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            let clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+            // Phase 1: 壓迫長按
+            if (currentPhase === 1) {
+                isHoldingDown = true;
+                document.getElementById('interaction-ring').style.display = 'block';
+                setHeartbeat(300); if(filter) filter.frequency.rampTo(2000, 2);
+            } 
+            // Phase 1.5: 碎裂隔閡
+            else if (currentPhase === 1.5) {
+                createCrack(clientX, clientY);
+            }
+            // Phase 2: 開始擦拭
+            else if (currentPhase === 2) {
+                isScratching = true; scratchLastPos = {x: clientX, y: clientY};
+                if(isAudioReady) scratchNoise.volume.rampTo(-15, 0.1);
+            }
+            // Phase 3: 聚光或連線
+            else if (currentPhase === 3) {
+                isHoldingDown = true;
+                if(e.touches && e.touches.length >= 2) {
+                    isDrawingLine = true;
+                    if(isAudioReady) chordSynth.triggerAttack(["C4", "G4", "E5"]);
+                } else {
+                    if(isAudioReady) ambientPad.volume.rampTo(-5, 2);
+                }
+            }
+            // Phase 4: 劇場漣漪
+            else if (currentPhase === 4) {
+                createRipple(clientX, clientY);
+            }
+        }
+
+        function handlePointerMove(e) {
+            let clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            let clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            // 更新目標位置供 3D 使用
+            targetMouse.x = (clientX / window.innerWidth) * 2 - 1;
+            targetMouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            if (currentPhase === 2 && isScratching) {
+                e.preventDefault(); doScratch(clientX, clientY);
+            }
+            else if (currentPhase === 3 && e.touches && e.touches.length >= 2) {
+                e.preventDefault(); drawConnectionLine(e.touches[0], e.touches[1]);
+            }
+        }
+
+        function handlePointerUp(e) {
+            isHoldingDown = false;
+            
+            if (currentPhase === 1) {
+                document.getElementById('interaction-ring').style.display = 'none';
+                setHeartbeat(1200); if(filter) filter.frequency.rampTo(150, 1);
+            }
+            else if (currentPhase === 2) {
+                isScratching = false;
+                if(isAudioReady) scratchNoise.volume.rampTo(-Infinity, 0.5);
+            }
+            else if (currentPhase === 3) {
+                if(isDrawingLine) {
+                    isDrawingLine = false;
+                    interactCtx.clearRect(0, 0, interactCanvas.width, interactCanvas.height);
+                    if(isAudioReady) chordSynth.triggerRelease(["C4", "G4", "E5"]);
+                } else {
+                    if(isAudioReady) ambientPad.volume.rampTo(-15, 3);
+                }
+            }
+        }
+
+        // 綁定事件
+        document.body.addEventListener('mousedown', handlePointerDown);
+        document.body.addEventListener('mousemove', handlePointerMove, {passive: false});
+        document.body.addEventListener('mouseup', handlePointerUp);
+        
+        document.body.addEventListener('touchstart', handlePointerDown, {passive: false});
+        document.body.addEventListener('touchmove', handlePointerMove, {passive: false});
+        document.body.addEventListener('touchend', handlePointerUp);
+
+        
+        // 生成裂痕
+        function createCrack(x, y) {
+            crackCount++;
+            if(isAudioReady) crackSynth.triggerAttackRelease("16n");
+            
+            const layer = document.getElementById('shatter-layer');
+            const lines = 3 + Math.floor(Math.random() * 3);
+            
+            for(let i=0; i<lines; i++) {
+                const crack = document.createElement('div');
+                crack.className = 'crack-line';
+                crack.style.left = `${x}px`; crack.style.top = `${y}px`;
+                crack.style.width = `${1 + Math.random()*2}px`;
+                crack.style.height = `${50 + Math.random()*150}px`;
+                crack.style.setProperty('--rot', `${Math.random() * 360}deg`);
+                layer.appendChild(crack);
+            }
+
+            // 震動特效
+            document.body.style.transform = `translate(${(Math.random()-0.5)*10}px, ${(Math.random()-0.5)*10}px)`;
+            setTimeout(() => document.body.style.transform = 'none', 50);
+
+            if(crackCount >= 4) triggerShatter();
+        }
+
+        // 生成漣漪
+        function createRipple(x, y) {
+            if(isAudioReady) rippleSynth.triggerAttackRelease("C3", "8n");
+            
+            const ripple = document.createElement('div');
+            ripple.className = 'ripple';
+            ripple.style.left = `${x}px`; ripple.style.top = `${y}px`;
+            ripple.style.width = '100px'; ripple.style.height = '100px';
+            document.body.appendChild(ripple);
+            
+            setTimeout(() => ripple.remove(), 2000);
+        }
+
+
+        function switchUI(hideId, showId, delay = 0) {
+            if(hideId) { const el = document.getElementById(hideId); if(el) el.classList.remove('active'); }
+            if(showId) { setTimeout(() => { const el = document.getElementById(showId); if(el) el.classList.add('active'); }, delay); }
+        }
+
+        // 階段 1：長按監聽
+        let holdTimer;
+        setInterval(() => {
+            if(currentPhase === 1) {
+                if(isHoldingDown) holdProgress += 1.5;
+                else if(holdProgress > 0) holdProgress -= 2;
+                
+                holdProgress = Math.max(0, Math.min(100, holdProgress));
+                
+                const ring = document.getElementById('interaction-ring');
+                if(isHoldingDown) {
+                    ring.style.width = `${100 + holdProgress*2}px`;
+                    ring.style.height = `${100 + holdProgress*2}px`;
+                    ring.style.boxShadow = `0 0 ${holdProgress}px rgba(255,255,255,0.5)`;
+                }
+                
+                document.getElementById('vignette').style.opacity = (holdProgress / 100).toString();
+                if(holdProgress > 50) document.getElementById('step-1-3').classList.add('blur-extreme');
+                else document.getElementById('step-1-3').classList.remove('blur-extreme');
+                
+                if (holdProgress >= 100) triggerBarrier();
+            }
+        }, 50);
+
+        async function startExperience() {
+            const startBtn = document.getElementById('start-btn');
+            startBtn.innerText = '連結中...'; startBtn.style.pointerEvents = 'none';
+            
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
+            }
+
+            await initAudio(); initCanvases();
+            document.getElementById('canvas-container').style.opacity = '1';
+            switchUI('step-0', 'step-1-1', 1000);
+            
+            currentPhase = 1; 
+            if (bgNoise) { bgNoise.start(); bgNoise.volume.rampTo(-10, 5); }
+            setHeartbeat(1200);
+
+            setTimeout(() => switchUI('step-1-1', 'step-1-2', 0), 6000);
+            setTimeout(() => {
+                switchUI('step-1-2', 'step-1-3', 0);
+                document.getElementById('hint-hold').style.display = 'block';
+            }, 12000);
+        }
+
+        function triggerBarrier() {
+            currentPhase = 1.5; // 新增：碎裂階段
+            isHoldingDown = false;
+            
+            setHeartbeat(0);
+            if (tinnitusSynth) {
+                tinnitusSynth.volume.value = -15; tinnitusSynth.start();
+                tinnitusSynth.volume.rampTo(-Infinity, 6);
+                setTimeout(() => tinnitusSynth.stop(), 7000);
+            }
+
+            document.getElementById('hint-hold').style.display = 'none';
+            document.getElementById('vignette').style.opacity = '0';
+            switchUI('step-1-3', 'step-1-5');
+            
+            setTimeout(() => { document.getElementById('hint-tap-break').style.display = 'block'; }, 2000);
+        }
+
+        function triggerShatter() {
+            currentPhase = 2; // 進入擦拭
+            if(isAudioReady) shatterSynth.triggerAttackRelease("4n");
+            
+            const flash = document.getElementById('flash');
+            flash.style.opacity = '1';
+            setTimeout(() => { flash.style.transition = 'opacity 2s ease-in'; flash.style.opacity = '0'; }, 100);
+
+            document.getElementById('shatter-layer').style.display = 'none';
+            document.getElementById('hint-tap-break').style.display = 'none';
+            switchUI('step-1-5', null);
+
+            // 顯示迷霧
+            fillFog();
+            fogCanvas.style.opacity = '1'; fogCanvas.style.pointerEvents = 'auto';
+            
+            setTimeout(() => {
+                switchUI(null, 'step-2', 0);
+                document.getElementById('hint-scratch').style.display = 'block';
+            }, 2000);
+        }
+
+        function transitionToFireflies() {
+            currentPhase = 3;
+            fogCanvas.style.pointerEvents = 'none';
+            fogCanvas.style.transition = 'opacity 3s ease'; fogCanvas.style.opacity = '0';
+            
+            document.getElementById('hint-scratch').style.display = 'none';
+            switchUI('step-2', 'step-3-1', 1000);
+
+            if (scene) scene.fog.color.setHex(0x1a0a00);
+            if (geometry) {
+                const colors = geometry.attributes.color.array;
+                for (let i = 0; i < particleCount; i++) {
+                    colors[i * 3] = 1.0; 
+                    colors[i * 3 + 1] = 0.4 + Math.random() * 0.4; 
+                    colors[i * 3 + 2] = 0.1 + Math.random() * 0.2; 
+                }
+                geometry.attributes.color.needsUpdate = true;
+                if(material) { material.size = 3; material.opacity = 0.8; }
+            }
+            camera.position.set(0, 0, 100);
+
+            if (ambientPad) ambientPad.triggerAttack(["C3", "E3", "G3", "C4"], "+0.5");
+
+            setTimeout(() => switchUI('step-3-1', 'step-3-2', 0), 5000);
+            setTimeout(() => { document.getElementById('hint-gather').style.display = 'block'; }, 6000);
+            
+            setTimeout(() => {
+                document.getElementById('hint-gather').style.display = 'none';
+                switchUI('step-3-2', 'step-4', 0);
+                triggerTheaterSync();
+            }, 20000); // 給予充分時間遊玩雙指連線
+        }
+
+        function triggerTheaterSync() {
+            currentPhase = 4;
+            
+            const theaterGlow = document.getElementById('theater-glow');
+            theaterGlow.classList.add('breathing-glow'); theaterGlow.style.opacity = '1';
+            
+            if (isAudioReady && heartbeatSynth) {
+                heartbeatSynth.volume.value = -2; setHeartbeat(4000);
+            }
+            
+            if(material) {
+                let fadeInt = setInterval(()=>{
+                    material.opacity -= 0.05;
+                    if(material.opacity <= 0.1) clearInterval(fadeInt);
+                }, 500);
+            }
+
+            setTimeout(() => { document.getElementById('hint-ripple').style.display = 'block'; }, 3000);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const startBtn = document.getElementById('start-btn');
+            setTimeout(() => { try { initThreeJS(); } catch(e) {} }, 100);
+            startBtn.addEventListener('click', (e) => { e.preventDefault(); startExperience(); });
+            startBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startExperience(); }, {passive: false});
+        });
+    </script>
+</body>
+</html>
